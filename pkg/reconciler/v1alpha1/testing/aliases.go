@@ -29,6 +29,7 @@ type (
 	EventList          = testing.EventList
 	Factory            = testing.Factory
 	HookResult         = testing.HookResult
+	FakeStatsReporter  = testing.FakeStatsReporter
 )
 
 var (
@@ -41,9 +42,15 @@ var (
 	ConfigMapFromTestFile     = testing.ConfigMapFromTestFile
 	Eventf                    = testing.Eventf
 
+	PrependGenerateNameReactor = testing.PrependGenerateNameReactor
+
 	TestLogger = logtesting.TestLogger
+
+	// ClearAllLoggers removes all the registered test loggers.
+	ClearAllLoggers = logtesting.ClearAll
 )
 
 const (
-	HookComplete = testing.HookComplete
+	HookComplete   = testing.HookComplete
+	HookIncomplete = testing.HookIncomplete
 )

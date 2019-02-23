@@ -25,15 +25,11 @@ import (
 )
 
 func TestClusterIngressDuckTypes(t *testing.T) {
-	var emptyGen duckv1alpha1.Generation
 
 	tests := []struct {
 		name string
 		t    duck.Implementable
 	}{{
-		name: "generational",
-		t:    &emptyGen,
-	}, {
 		name: "conditions",
 		t:    &duckv1alpha1.Conditions{},
 	}}
@@ -53,6 +49,24 @@ func TestGetGroupVersionKind(t *testing.T) {
 	expected := SchemeGroupVersion.WithKind("ClusterIngress")
 	if diff := cmp.Diff(expected, ci.GetGroupVersionKind()); diff != "" {
 		t.Errorf("Unexpected diff (-want, +got) = %v", diff)
+	}
+}
+
+func TestIsPublic(t *testing.T) {
+	ci := ClusterIngress{}
+	if !ci.IsPublic() {
+		t.Error("Expected default ClusterIngress to be public, for backward compatibility")
+	}
+	if !ci.IsPublic() {
+		t.Errorf("Expected IsPublic()==true, saw %v", ci.IsPublic())
+	}
+	ci.Spec.Visibility = IngressVisibilityExternalIP
+	if !ci.IsPublic() {
+		t.Errorf("Expected IsPublic()==true, saw %v", ci.IsPublic())
+	}
+	ci.Spec.Visibility = IngressVisibilityClusterLocal
+	if ci.IsPublic() {
+		t.Errorf("Expected IsPublic()==false, saw %v", ci.IsPublic())
 	}
 }
 

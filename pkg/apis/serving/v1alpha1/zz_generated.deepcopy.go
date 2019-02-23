@@ -24,7 +24,6 @@ import (
 	build_v1alpha1 "github.com/knative/build/pkg/apis/build/v1alpha1"
 	duck_v1alpha1 "github.com/knative/pkg/apis/duck/v1alpha1"
 	v1 "k8s.io/api/core/v1"
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -306,13 +305,11 @@ func (in *RevisionSpec) DeepCopyInto(out *RevisionSpec) {
 		}
 	}
 	in.Container.DeepCopyInto(&out.Container)
-	if in.TimeoutSeconds != nil {
-		in, out := &in.TimeoutSeconds, &out.TimeoutSeconds
-		if *in == nil {
-			*out = nil
-		} else {
-			*out = new(meta_v1.Duration)
-			**out = **in
+	if in.Volumes != nil {
+		in, out := &in.Volumes, &out.Volumes
+		*out = make([]v1.Volume, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
 	return
@@ -582,8 +579,8 @@ func (in *ServiceSpec) DeepCopyInto(out *ServiceSpec) {
 			(*in).DeepCopyInto(*out)
 		}
 	}
-	if in.Pinned != nil {
-		in, out := &in.Pinned, &out.Pinned
+	if in.DeprecatedPinned != nil {
+		in, out := &in.DeprecatedPinned, &out.DeprecatedPinned
 		if *in == nil {
 			*out = nil
 		} else {

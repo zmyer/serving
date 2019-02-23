@@ -18,10 +18,8 @@ package v1alpha1
 
 import (
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestServiceDefaulting(t *testing.T) {
@@ -60,9 +58,7 @@ func TestServiceDefaulting(t *testing.T) {
 					Configuration: ConfigurationSpec{
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
-								TimeoutSeconds: &metav1.Duration{
-									Duration: 60 * time.Second,
-								},
+								TimeoutSeconds: defaultTimeoutSeconds,
 							},
 						},
 					},
@@ -78,9 +74,7 @@ func TestServiceDefaulting(t *testing.T) {
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
 								ContainerConcurrency: 1,
-								TimeoutSeconds: &metav1.Duration{
-									Duration: 60 * time.Second,
-								},
+								TimeoutSeconds:       defaultTimeoutSeconds,
 							},
 						},
 					},
@@ -94,9 +88,7 @@ func TestServiceDefaulting(t *testing.T) {
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
 								ContainerConcurrency: 1,
-								TimeoutSeconds: &metav1.Duration{
-									Duration: 60 * time.Second,
-								},
+								TimeoutSeconds:       defaultTimeoutSeconds,
 							},
 						},
 					},
@@ -107,18 +99,16 @@ func TestServiceDefaulting(t *testing.T) {
 		name: "pinned",
 		in: &Service{
 			Spec: ServiceSpec{
-				Pinned: &PinnedType{},
+				DeprecatedPinned: &PinnedType{},
 			},
 		},
 		want: &Service{
 			Spec: ServiceSpec{
-				Pinned: &PinnedType{
+				DeprecatedPinned: &PinnedType{
 					Configuration: ConfigurationSpec{
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
-								TimeoutSeconds: &metav1.Duration{
-									Duration: 60 * time.Second,
-								},
+								TimeoutSeconds: defaultTimeoutSeconds,
 							},
 						},
 					},
@@ -129,14 +119,12 @@ func TestServiceDefaulting(t *testing.T) {
 		name: "pinned - no overwrite",
 		in: &Service{
 			Spec: ServiceSpec{
-				Pinned: &PinnedType{
+				DeprecatedPinned: &PinnedType{
 					Configuration: ConfigurationSpec{
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
 								ContainerConcurrency: 1,
-								TimeoutSeconds: &metav1.Duration{
-									Duration: 99 * time.Second,
-								},
+								TimeoutSeconds:       99,
 							},
 						},
 					},
@@ -145,14 +133,12 @@ func TestServiceDefaulting(t *testing.T) {
 		},
 		want: &Service{
 			Spec: ServiceSpec{
-				Pinned: &PinnedType{
+				DeprecatedPinned: &PinnedType{
 					Configuration: ConfigurationSpec{
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
 								ContainerConcurrency: 1,
-								TimeoutSeconds: &metav1.Duration{
-									Duration: 99 * time.Second,
-								},
+								TimeoutSeconds:       99,
 							},
 						},
 					},
@@ -172,9 +158,7 @@ func TestServiceDefaulting(t *testing.T) {
 					Configuration: ConfigurationSpec{
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
-								TimeoutSeconds: &metav1.Duration{
-									Duration: 60 * time.Second,
-								},
+								TimeoutSeconds: defaultTimeoutSeconds,
 							},
 						},
 					},
@@ -190,9 +174,7 @@ func TestServiceDefaulting(t *testing.T) {
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
 								ContainerConcurrency: 1,
-								TimeoutSeconds: &metav1.Duration{
-									Duration: 99 * time.Second,
-								},
+								TimeoutSeconds:       99,
 							},
 						},
 					},
@@ -206,9 +188,7 @@ func TestServiceDefaulting(t *testing.T) {
 						RevisionTemplate: RevisionTemplateSpec{
 							Spec: RevisionSpec{
 								ContainerConcurrency: 1,
-								TimeoutSeconds: &metav1.Duration{
-									Duration: 99 * time.Second,
-								},
+								TimeoutSeconds:       99,
 							},
 						},
 					},

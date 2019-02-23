@@ -16,15 +16,9 @@ limitations under the License.
 
 package v1alpha1
 
-import (
-	"time"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
-
 const (
-	// defaultTimeout will be set if timeoutSeconds not specified.
-	defaultTimeout = 60 * time.Second
+	// defaultTimeoutSeconds will be set if timeoutSeconds not specified.
+	defaultTimeoutSeconds = 5 * 60
 )
 
 func (r *Revision) SetDefaults() {
@@ -34,11 +28,16 @@ func (r *Revision) SetDefaults() {
 func (rs *RevisionSpec) SetDefaults() {
 	// When ConcurrencyModel is specified but ContainerConcurrency
 	// is not (0), use the ConcurrencyModel value.
-	if rs.ConcurrencyModel == RevisionRequestConcurrencyModelSingle && rs.ContainerConcurrency == 0 {
+	if rs.DeprecatedConcurrencyModel == RevisionRequestConcurrencyModelSingle && rs.ContainerConcurrency == 0 {
 		rs.ContainerConcurrency = 1
 	}
 
-	if rs.TimeoutSeconds == nil {
-		rs.TimeoutSeconds = &metav1.Duration{Duration: defaultTimeout}
+	if rs.TimeoutSeconds == 0 {
+		rs.TimeoutSeconds = defaultTimeoutSeconds
+	}
+
+	vms := rs.Container.VolumeMounts
+	for i := range vms {
+		vms[i].ReadOnly = true
 	}
 }

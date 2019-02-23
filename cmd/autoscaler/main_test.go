@@ -18,14 +18,23 @@ package main
 import (
 	"testing"
 
-	kpa "github.com/knative/serving/pkg/apis/autoscaling/v1alpha1"
+	"github.com/knative/serving/pkg/apis/serving"
+	"github.com/knative/serving/pkg/autoscaler"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubeinformers "k8s.io/client-go/informers"
+	fakeK8s "k8s.io/client-go/kubernetes/fake"
+)
+
+const (
+	testNamespace = "test-namespace"
+	testRevision  = "test-Revision"
 )
 
 func TestLabelValueOrEmpty(t *testing.T) {
-	kpa := &kpa.PodAutoscaler{}
-	kpa.Labels = make(map[string]string)
-	kpa.Labels["test1"] = "test1val"
-	kpa.Labels["test2"] = ""
+	metric := &autoscaler.Metric{}
+	metric.Labels = make(map[string]string)
+	metric.Labels["test1"] = "test1val"
+	metric.Labels["test2"] = ""
 
 	cases := []struct {
 		name string
@@ -47,9 +56,46 @@ func TestLabelValueOrEmpty(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := labelValueOrEmpty(kpa, c.key); got != c.want {
+			if got := labelValueOrEmpty(metric, c.key); got != c.want {
 				t.Errorf("%q expected: %v got: %v", c.name, got, c.want)
 			}
 		})
 	}
+}
+
+func TestUniScalerFactoryFunc(t *testing.T) {
+	uniScalerFactory := getTestUniScalerFactory()
+	metric := &autoscaler.Metric{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: testNamespace,
+			Name:      testRevision,
+			Labels:    map[string]string{serving.RevisionLabelKey: testRevision},
+		},
+	}
+	dynamicConfig := &autoscaler.DynamicConfig{}
+
+	if _, err := uniScalerFactory(metric, dynamicConfig); err != nil {
+		t.Errorf("got error from uniScalerFactory: %v", err)
+	}
+}
+
+func TestUniScalerFactoryFunc_FailWhenRevisionLabelMissing(t *testing.T) {
+	uniScalerFactory := getTestUniScalerFactory()
+	metric := &autoscaler.Metric{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: testNamespace,
+			Name:      testRevision,
+		},
+	}
+	dynamicConfig := &autoscaler.DynamicConfig{}
+
+	if _, err := uniScalerFactory(metric, dynamicConfig); err == nil {
+		t.Errorf("expected error when revision label missing but got none")
+	}
+}
+
+func getTestUniScalerFactory() func(metric *autoscaler.Metric, dynamicConfig *autoscaler.DynamicConfig) (autoscaler.UniScaler, error) {
+	kubeClient := fakeK8s.NewSimpleClientset()
+	kubeInformer := kubeinformers.NewSharedInformerFactory(kubeClient, 0)
+	return uniScalerFactoryFunc(kubeInformer.Core().V1().Endpoints())
 }

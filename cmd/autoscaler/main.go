@@ -18,12 +18,14 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"time"
 
 	"github.com/knative/pkg/configmap"
 	"github.com/knative/pkg/signals"
-	pav1alpha1 "github.com/knative/serving/pkg/apis/autoscaling/v1alpha1"
+	"github.com/knative/pkg/system"
+	"github.com/knative/pkg/version"
 	"github.com/knative/serving/pkg/apis/serving"
 	"github.com/knative/serving/pkg/autoscaler"
 	"github.com/knative/serving/pkg/autoscaler/statserver"
@@ -34,13 +36,13 @@ import (
 	"github.com/knative/serving/pkg/reconciler"
 	"github.com/knative/serving/pkg/reconciler/v1alpha1/autoscaling/hpa"
 	"github.com/knative/serving/pkg/reconciler/v1alpha1/autoscaling/kpa"
-	"github.com/knative/serving/pkg/system"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/discovery/cached"
 	"k8s.io/client-go/dynamic"
 	kubeinformers "k8s.io/client-go/informers"
+	corev1informers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/scale"
@@ -81,16 +83,20 @@ func main() {
 
 	cfg, err := clientcmd.BuildConfigFromFlags(*masterURL, *kubeconfig)
 	if err != nil {
-		logger.Fatal("Error building kubeconfig.", zap.Error(err))
+		logger.Fatalw("Error building kubeconfig", zap.Error(err))
 	}
 
 	kubeClientSet, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		logger.Fatal("Error building kubernetes clientset.", zap.Error(err))
+		logger.Fatalw("Error building kubernetes clientset", zap.Error(err))
+	}
+
+	if err := version.CheckMinimumVersion(kubeClientSet.Discovery()); err != nil {
+		logger.Fatalf("Version check failed: %v", err)
 	}
 
 	// Watch the logging config map and dynamically update logging levels.
-	configMapWatcher := configmap.NewInformedWatcher(kubeClientSet, system.Namespace)
+	configMapWatcher := configmap.NewInformedWatcher(kubeClientSet, system.Namespace())
 	configMapWatcher.Watch(logging.ConfigName, logging.UpdateLevelFromConfigMap(logger, atomicLevel, component))
 	// Watch the observability config map and dynamically update metrics exporter.
 	configMapWatcher.Watch(metrics.ObservabilityConfigName, metrics.UpdateExporterFromConfigMap(component, logger))
@@ -100,26 +106,24 @@ func main() {
 	scaleClient, err := scale.NewForConfig(cfg, restMapper, dynamic.LegacyAPIPathResolverFunc,
 		scale.NewDiscoveryScaleKindResolver(kubeClientSet.Discovery()))
 	if err != nil {
-		logger.Fatal("Error building scale clientset.", zap.Error(err))
+		logger.Fatalw("Error building scale clientset", zap.Error(err))
 	}
 
 	servingClientSet, err := clientset.NewForConfig(cfg)
 	if err != nil {
-		logger.Fatal("Error building serving clientset.", zap.Error(err))
+		logger.Fatalw("Error building serving clientset", zap.Error(err))
 	}
 
 	rawConfig, err := configmap.Load("/etc/config-autoscaler")
 	if err != nil {
-		logger.Fatalf("Error reading autoscaler configuration: %v", err)
+		logger.Fatalw("Error reading autoscaler configuration", zap.Error(err))
 	}
 	dynConfig, err := autoscaler.NewDynamicConfigFromMap(rawConfig, logger)
 	if err != nil {
-		logger.Fatalf("Error parsing autoscaler configuration: %v", err)
+		logger.Fatalw("Error parsing autoscaler configuration", zap.Error(err))
 	}
 	// Watch the autoscaler config map and dynamically update autoscaler config.
 	configMapWatcher.Watch(autoscaler.ConfigName, dynConfig.Update)
-
-	multiScaler := autoscaler.NewMultiScaler(dynConfig, stopCh, uniScalerFactory, logger)
 
 	opt := reconciler.Options{
 		KubeClientSet:    kubeClientSet,
@@ -134,15 +138,17 @@ func main() {
 	endpointsInformer := kubeInformerFactory.Core().V1().Endpoints()
 	hpaInformer := kubeInformerFactory.Autoscaling().V1().HorizontalPodAutoscalers()
 
+	// uniScalerFactory depends endpointsInformer to be set.
+	multiScaler := autoscaler.NewMultiScaler(dynConfig, stopCh, uniScalerFactoryFunc(endpointsInformer), logger)
 	kpaScaler := kpa.NewKPAScaler(servingClientSet, scaleClient, logger, configMapWatcher)
-	kpaCtl := kpa.NewController(&opt, paInformer, endpointsInformer, multiScaler, kpaScaler)
+	kpaCtl := kpa.NewController(&opt, paInformer, endpointsInformer, multiScaler, kpaScaler, dynConfig)
 	hpaCtl := hpa.NewController(&opt, paInformer, hpaInformer)
 
 	// Start the serving informer factory.
 	kubeInformerFactory.Start(stopCh)
 	servingInformerFactory.Start(stopCh)
 	if err := configMapWatcher.Start(stopCh); err != nil {
-		logger.Fatalf("failed to start watching logging config: %v", err)
+		logger.Fatalw("Failed to start watching logging config", zap.Error(err))
 	}
 
 	// Wait for the caches to be synced before starting controllers.
@@ -153,7 +159,7 @@ func main() {
 		hpaInformer.Informer().HasSynced,
 	} {
 		if ok := cache.WaitForCacheSync(stopCh, synced); !ok {
-			logger.Fatalf("failed to wait for cache at index %v to sync", i)
+			logger.Fatalf("Failed to wait for cache at index %d to sync", i)
 		}
 	}
 
@@ -186,7 +192,7 @@ func main() {
 
 	go func() {
 		if err := eg.Wait(); err != nil {
-			logger.Error("Group error.", zap.Error(err))
+			logger.Errorw("Group error.", zap.Error(err))
 		}
 		close(egCh)
 	}()
@@ -211,20 +217,29 @@ func buildRESTMapper(kubeClientSet kubernetes.Interface, stopCh <-chan struct{})
 	return rm
 }
 
-func uniScalerFactory(pa *pav1alpha1.PodAutoscaler, dynamicConfig *autoscaler.DynamicConfig) (autoscaler.UniScaler, error) {
-	// Create a stats reporter which tags statistics by PA namespace, configuration name, and PA name.
-	reporter, err := autoscaler.NewStatsReporter(pa.Namespace,
-		labelValueOrEmpty(pa, serving.ServiceLabelKey), labelValueOrEmpty(pa, serving.ConfigurationLabelKey), pa.Name)
-	if err != nil {
-		return nil, err
-	}
+func uniScalerFactoryFunc(endpointsInformer corev1informers.EndpointsInformer) func(metric *autoscaler.Metric, dynamicConfig *autoscaler.DynamicConfig) (autoscaler.UniScaler, error) {
+	return func(metric *autoscaler.Metric, dynamicConfig *autoscaler.DynamicConfig) (autoscaler.UniScaler, error) {
+		// Create a stats reporter which tags statistics by PA namespace, configuration name, and PA name.
+		reporter, err := autoscaler.NewStatsReporter(metric.Namespace,
+			labelValueOrEmpty(metric, serving.ServiceLabelKey), labelValueOrEmpty(metric, serving.ConfigurationLabelKey), metric.Name)
+		if err != nil {
+			return nil, err
+		}
 
-	return autoscaler.New(dynamicConfig, pa.Spec.ContainerConcurrency, reporter), nil
+		revName := metric.Labels[serving.RevisionLabelKey]
+		if revName == "" {
+			return nil, fmt.Errorf("No Revision label found in Metric: %v", metric)
+		}
+
+		return autoscaler.New(dynamicConfig, metric.Namespace,
+			reconciler.GetServingK8SServiceNameForObj(revName), endpointsInformer,
+			metric.Spec.TargetConcurrency, reporter)
+	}
 }
 
-func labelValueOrEmpty(pa *pav1alpha1.PodAutoscaler, labelKey string) string {
-	if pa.Labels != nil {
-		if value, ok := pa.Labels[labelKey]; ok {
+func labelValueOrEmpty(metric *autoscaler.Metric, labelKey string) string {
+	if metric.Labels != nil {
+		if value, ok := metric.Labels[labelKey]; ok {
 			return value
 		}
 	}

@@ -15,26 +15,25 @@ package test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
+	"testing"
 
-	"github.com/knative/pkg/test/logging"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/knative/pkg/signals"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+)
+
+const (
+	HelloVolumePath = "/hello/world"
 )
 
 // util.go provides shared utilities methods across knative serving test
 
 // LogResourceObject logs the resource object with the resource name and value
-func LogResourceObject(logger *logging.BaseLogger, value ResourceObjects) {
-	// Log the route object
-	if resourceJSON, err := json.Marshal(value); err != nil {
-		logger.Infof("Failed to create json from resource object: %v", err)
-	} else {
-		logger.Infof("resource %s", string(resourceJSON))
-	}
+func LogResourceObject(t *testing.T, value ResourceObjects) {
+	t.Logf("resource %s", spew.Sdump(value))
 }
 
 // ImagePath is a helper function to prefix image name with repo and suffix with tag
@@ -59,11 +58,9 @@ func ListenAndServeGracefullyWithPattern(addr string, handlers map[string]func(w
 		m.HandleFunc(pattern, handler)
 	}
 
-	server := http.Server{Addr: addr, Handler: m}
+	server := http.Server{Addr: addr, Handler: h2c.NewHandler(m, &http2.Server{})}
 	go server.ListenAndServe()
 
-	sigTermChan := make(chan os.Signal)
-	signal.Notify(sigTermChan, syscall.SIGTERM)
-	<-sigTermChan
+	<-signals.SetupSignalHandler()
 	server.Shutdown(context.Background())
 }

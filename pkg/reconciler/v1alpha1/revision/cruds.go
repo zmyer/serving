@@ -63,6 +63,10 @@ func (c *Reconciler) checkAndUpdateDeployment(ctx context.Context, rev *v1alpha1
 	// Preserve the current scale of the Deployment.
 	deployment.Spec.Replicas = have.Spec.Replicas
 
+	// Preserve the label selector since it's immutable
+	// TODO(dprotaso) Determine other immutable properties
+	deployment.Spec.Selector = have.Spec.Selector
+
 	// If the spec we want is the spec we have, then we're good.
 	if equality.Semantic.DeepEqual(have.Spec, deployment.Spec) {
 		return have, Unchanged, nil
@@ -71,6 +75,12 @@ func (c *Reconciler) checkAndUpdateDeployment(ctx context.Context, rev *v1alpha1
 	// Otherwise attempt an update (with ONLY the spec changes).
 	desiredDeployment := have.DeepCopy()
 	desiredDeployment.Spec = deployment.Spec
+
+	// carry over new labels
+	for k, v := range deployment.Labels {
+		desiredDeployment.Labels[k] = v
+	}
+
 	d, err := c.KubeClientSet.AppsV1().Deployments(deployment.Namespace).Update(desiredDeployment)
 	if err != nil {
 		return nil, Unchanged, err

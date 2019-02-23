@@ -24,10 +24,11 @@ import (
 	istiov1alpha1 "github.com/knative/pkg/apis/istio/common/v1alpha1"
 	"github.com/knative/pkg/apis/istio/v1alpha3"
 	"github.com/knative/pkg/kmeta"
+	"github.com/knative/pkg/system"
+	_ "github.com/knative/pkg/system/testing"
 	"github.com/knative/serving/pkg/apis/networking"
 	"github.com/knative/serving/pkg/apis/networking/v1alpha1"
 	"github.com/knative/serving/pkg/apis/serving"
-	"github.com/knative/serving/pkg/system"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -45,7 +46,7 @@ func TestMakeVirtualServiceSpec_CorrectMetadata(t *testing.T) {
 	}
 	expected := metav1.ObjectMeta{
 		Name:      "test-ingress",
-		Namespace: system.Namespace,
+		Namespace: system.Namespace(),
 		Labels: map[string]string{
 			networking.IngressLabelKey:     "test-ingress",
 			serving.RouteLabelKey:          "test-route",
@@ -142,13 +143,13 @@ func TestMakeVirtualServiceSpec_CorrectRoutes(t *testing.T) {
 			Authority: &istiov1alpha1.StringMatch{Exact: "domain.com"},
 		}, {
 			Uri:       &istiov1alpha1.StringMatch{Regex: "^/pets/(.*?)?"},
-			Authority: &istiov1alpha1.StringMatch{Exact: "test-route.test-ns.svc.cluster.local"},
+			Authority: &istiov1alpha1.StringMatch{Exact: "test-route.test-ns"},
 		}, {
 			Uri:       &istiov1alpha1.StringMatch{Regex: "^/pets/(.*?)?"},
 			Authority: &istiov1alpha1.StringMatch{Exact: "test-route.test-ns.svc"},
 		}, {
 			Uri:       &istiov1alpha1.StringMatch{Regex: "^/pets/(.*?)?"},
-			Authority: &istiov1alpha1.StringMatch{Exact: "test-route.test-ns"},
+			Authority: &istiov1alpha1.StringMatch{Exact: "test-route.test-ns.svc.cluster.local"},
 		}},
 		Route: []v1alpha3.DestinationWeight{{
 			Destination: v1alpha3.Destination{
@@ -162,6 +163,7 @@ func TestMakeVirtualServiceSpec_CorrectRoutes(t *testing.T) {
 			Attempts:      v1alpha1.DefaultRetryCount,
 			PerTryTimeout: v1alpha1.DefaultTimeout.String(),
 		},
+		WebsocketUpgrade: true,
 	}, {
 		Match: []v1alpha3.HTTPMatchRequest{{
 			Uri:       &istiov1alpha1.StringMatch{Regex: "^/pets/(.*?)?"},
@@ -179,6 +181,7 @@ func TestMakeVirtualServiceSpec_CorrectRoutes(t *testing.T) {
 			Attempts:      v1alpha1.DefaultRetryCount,
 			PerTryTimeout: v1alpha1.DefaultTimeout.String(),
 		},
+		WebsocketUpgrade: true,
 	}}
 	routes := MakeVirtualService(ci, []string{}).Spec.Http
 	if diff := cmp.Diff(expected, routes); diff != "" {
@@ -225,6 +228,7 @@ func TestMakeVirtualServiceRoute_Vanilla(t *testing.T) {
 			Attempts:      v1alpha1.DefaultRetryCount,
 			PerTryTimeout: v1alpha1.DefaultTimeout.String(),
 		},
+		WebsocketUpgrade: true,
 	}
 	if diff := cmp.Diff(&expected, route); diff != "" {
 		t.Errorf("Unexpected route  (-want +got): %v", diff)
@@ -279,6 +283,7 @@ func TestMakeVirtualServiceRoute_TwoTargets(t *testing.T) {
 			Attempts:      v1alpha1.DefaultRetryCount,
 			PerTryTimeout: v1alpha1.DefaultTimeout.String(),
 		},
+		WebsocketUpgrade: true,
 	}
 	if diff := cmp.Diff(&expected, route); diff != "" {
 		t.Errorf("Unexpected route  (-want +got): %v", diff)
@@ -309,5 +314,58 @@ func TestGetHosts_Duplicate(t *testing.T) {
 	}
 	if diff := cmp.Diff(expected, hosts); diff != "" {
 		t.Errorf("Unexpected hosts  (-want +got): %v", diff)
+	}
+}
+
+func TestGetExpandedHosts(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		hosts []string
+		want  []string
+	}{{
+		name: "cluster local service in non-default namespace",
+		hosts: []string{
+			"service.namespace.svc.cluster.local",
+		},
+		want: []string{
+			"service.namespace",
+			"service.namespace.svc",
+			"service.namespace.svc.cluster.local",
+		},
+	}, {
+		name: "example.com service",
+		hosts: []string{
+			"foo.bar.example.com",
+		},
+		want: []string{
+			"foo.bar.example.com",
+		},
+	}, {
+		name: "default.example.com service",
+		hosts: []string{
+			"foo.default.example.com",
+		},
+		want: []string{
+			"foo.default.example.com",
+		},
+	}, {
+		name: "mix",
+		hosts: []string{
+			"foo.default.example.com",
+			"foo.default.svc.cluster.local",
+		},
+		want: []string{
+			"foo.default",
+			"foo.default.example.com",
+			"foo.default.svc",
+			"foo.default.svc.cluster.local",
+		},
+	}} {
+		t.Run(test.name, func(t *testing.T) {
+			got := expandedHosts(test.hosts)
+			if diff := cmp.Diff(got, test.want); diff != "" {
+				t.Errorf("Unexpected (-want +got): %v", diff)
+			}
+		})
 	}
 }
